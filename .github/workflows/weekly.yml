@@ -4,10 +4,15 @@ on: {schedule: [{cron: "0 7 * * 5"}], workflow_dispatch: {}}
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 jobs:
   search:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -16,10 +21,16 @@ jobs:
       - run: python search.py
         env:
           SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
-      - name: Save report
+      - name: Save results
         run: |
           git config user.name "flight-agent"
           git config user.email "flight-agent@users.noreply.github.com"
-          git add reports prices.csv
+          git add reports prices.csv docs
           git commit -m "Flight report $(date +%F)" || echo "No changes"
           git push
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+      - id: deploy
+        uses: actions/deploy-pages@v4
