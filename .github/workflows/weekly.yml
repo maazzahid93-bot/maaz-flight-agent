@@ -1,9 +1,6 @@
 name: Weekly flight search
 
-on:
-  schedule:
-    - cron: "0 7 * * 5"  # Fridays 08:00 Brussels (winter time)
-  workflow_dispatch:      # adds a "Run workflow" button
+on: {schedule: [{cron: "0 7 * * 5"}], workflow_dispatch: {}}
 
 permissions:
   contents: write
