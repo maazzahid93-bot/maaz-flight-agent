@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flight Tracker</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --card: #ffffff; --ink: #1c1d1f; --muted: #6b6e73; --line: #e3e1da;
+    --accent: #2457d6; --down: #1f8a4c; --up: #c0392b; --chip: #eceae3;
+    --s1: #2457d6; --s2: #d9822b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141517; --card: #1d1f22; --ink: #ecebe7; --muted: #9a9da3; --line: #2d3035;
+      --accent: #7aa2ff; --down: #4cc483; --up: #ff7a6b; --chip: #2a2c30;
+      --s1: #7aa2ff; --s2: #f0a85a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 28px 16px 60px; }
+  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.02em; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 24px; }
+  .best { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-bottom: 24px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+  .card .dest { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .card .price { font-size: 34px; font-weight: 700; letter-spacing: -0.02em; margin: 4px 0; }
+  .card .meta { color: var(--muted); font-size: 13px; }
+  .chg { font-size: 13px; font-weight: 600; margin-left: 6px; }
+  .chg.down { color: var(--down); } .chg.up { color: var(--up); }
+  a.btn { display: inline-block; margin-top: 12px; padding: 7px 14px; border-radius: 999px;
+          background: var(--accent); color: #fff; text-decoration: none; font-size: 13px; font-weight: 600; }
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  select { background: var(--card); color: var(--ink); border: 1px solid var(--line);
+           border-radius: 8px; padding: 7px 10px; font: inherit; font-size: 14px; }
+  .tablewrap { overflow-x: auto; background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; cursor: pointer; user-select: none; }
+  tr:last-child td { border-bottom: 0; }
+  td.p { font-weight: 700; }
+  td a { color: var(--accent); font-weight: 600; text-decoration: none; }
+  .tag { background: var(--chip); border-radius: 6px; padding: 2px 7px; font-size: 12px; }
+  h2 { font-size: 16px; margin: 32px 0 10px; }
+  .legend { display: flex; gap: 16px; font-size: 13px; color: var(--muted); margin-top: 8px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+  .empty { color: var(--muted); padding: 24px; text-align: center; }
+  .err { color: var(--up); font-size: 13px; margin-top: 16px; }
+  svg text { fill: var(--muted); font-size: 11px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Flight Tracker</h1>
+  <p class="sub" id="sub">Loading…</p>
+
+  <section class="best" id="best"></section>
+
+  <div class="filters">
+    <select id="fDest"><option value="">All destinations</option></select>
+    <select id="fOrigin"><option value="">All origins</option></select>
+    <select id="fDate"><option value="">All departure dates</option></select>
+    <select id="fStops"><option value="">Any stops</option><option value="0">Nonstop only</option></select>
+  </div>
+  <div class="tablewrap">
+    <table>
+      <thead><tr>
+        <th data-k="price">Price ↕</th><th>Destination</th><th data-k="depart">Depart ↕</th>
+        <th>Route</th><th>Airline</th><th>Layover</th><th data-k="duration_min">Duration ↕</th><th></th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <h2>Best price per run</h2>
+  <div class="card"><div id="chart"></div><div class="legend" id="legend"></div></div>
+  <p class="err" id="err"></p>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const fmtDur = m => `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}`;
+const fmtDate = s => new Date(s + "T00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+let data, flights = [], sortKey = "price", sortDir = 1;
+
+fetch("data.json?" + Date.now()).then(r => r.json()).then(d => {
+  data = d;
+  for (const [dest, rows] of Object.entries(d.results)) rows.forEach(r => flights.push({ ...r, dest }));
+  const w = d.window;
+  $("sub").textContent = `Depart ${fmtDate(w.depart_from)}–${fmtDate(w.depart_to)}, return ${fmtDate(w.return)} · ` +
+    `max 1 stop, layover ≤ ${w.max_layover_h}h · round trip in ${d.currency} · updated ` +
+    new Date(d.updated).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
+  fill("fDest", Object.keys(d.results));
+  fill("fOrigin", [...new Set(flights.map(f => f.origin))].sort());
+  fill("fDate", [...new Set(flights.map(f => f.depart))].sort(), fmtDate);
+  renderBest(); renderTable(); renderChart();
+  if (d.errors?.length) $("err").textContent = "Some searches failed: " + d.errors.join("; ");
+}).catch(() => { $("sub").textContent = "No data yet. Run the workflow once from the Actions tab."; });
+
+function fill(id, values, label = v => v) {
+  values.forEach(v => $(id).insertAdjacentHTML("beforeend", `<option value="${v}">${label(v)}</option>`));
+  $(id).onchange = renderTable;
+}
+
+function renderBest() {
+  $("best").innerHTML = Object.entries(data.results).map(([dest, rows]) => {
+    if (!rows.length) return `<div class="card"><div class="dest">${dest}</div><div class="meta">No flights matched</div></div>`;
+    const b = rows[0], hist = data.history.filter(h => h.destination === dest);
+    const prev = hist.length > 1 ? hist[hist.length - 2].price : null;
+    const chg = prev && prev !== b.price
+      ? `<span class="chg ${b.price < prev ? "down" : "up"}">${b.price < prev ? "▼" : "▲"} €${Math.abs(b.price - prev)}</span>` : "";
+    return `<div class="card"><div class="dest">${dest}</div>
+      <div class="price">€${b.price}${chg}</div>
+      <div class="meta">${fmtDate(b.depart)} · ${b.origin} → ${b.arrival} · ${b.airline}<br>${b.layover} · ${fmtDur(b.duration_min)}</div>
+      <a class="btn" href="${b.link}" target="_blank" rel="noopener">Open in Google Flights</a></div>`;
+  }).join("");
+}
+
+function renderTable() {
+  const f = { dest: $("fDest").value, origin: $("fOrigin").value, date: $("fDate").value, stops: $("fStops").value };
+  const list = flights.filter(x =>
+    (!f.dest || x.dest === f.dest) && (!f.origin || x.origin === f.origin) &&
+    (!f.date || x.depart === f.date) && (f.stops === "" || x.stops == f.stops)
+  ).sort((a, b) => (a[sortKey] > b[sortKey] ? 1 : a[sortKey] < b[sortKey] ? -1 : 0) * sortDir);
+  $("rows").innerHTML = list.length ? list.map(x => `<tr>
+    <td class="p">€${x.price}</td><td>${x.dest}</td><td>${fmtDate(x.depart)}</td>
+    <td>${x.origin} → ${x.arrival}</td><td>${x.airline}</td>
+    <td>${x.stops ? x.layover : '<span class="tag">Nonstop</span>'}</td><td>${fmtDur(x.duration_min)}</td>
+    <td><a href="${x.link}" target="_blank" rel="noopener">Open ↗</a></td></tr>`).join("")
+    : `<tr><td colspan="8" class="empty">No flights match these filters</td></tr>`;
+}
+$("fStops").onchange = renderTable;
+document.querySelectorAll("th[data-k]").forEach(th => th.onclick = () => {
+  sortDir = sortKey === th.dataset.k ? -sortDir : 1; sortKey = th.dataset.k; renderTable();
+});
+
+function renderChart() {
+  const dests = Object.keys(data.results), h = data.history;
+  if (!h.length) { $("chart").innerHTML = '<div class="empty">History appears after the first run</div>'; return; }
+  const dates = [...new Set(h.map(x => x.date))].sort();
+  const prices = h.map(x => x.price), lo = Math.min(...prices) * 0.95, hi = Math.max(...prices) * 1.05;
+  const W = 900, H = 220, P = 40;
+  const x = i => dates.length === 1 ? W / 2 : P + i * (W - 2 * P) / (dates.length - 1);
+  const y = v => H - 24 - (v - lo) / (hi - lo || 1) * (H - 44);
+  const colors = ["var(--s1)", "var(--s2)"];
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Price history">`;
+  [lo, (lo + hi) / 2, hi].forEach(v => svg += `<text x="0" y="${y(v) + 4}">€${Math.round(v)}</text>`);
+  dates.forEach((d, i) => svg += `<text x="${x(i)}" y="${H - 4}" text-anchor="middle">${fmtDate(d)}</text>`);
+  dests.forEach((dest, k) => {
+    const pts = dates.map((d, i) => { const r = h.find(e => e.date === d && e.destination === dest); return r ? [x(i), y(r.price), r.price] : null; }).filter(Boolean);
+    if (pts.length > 1) svg += `<polyline fill="none" stroke="${colors[k % 2]}" stroke-width="2.5" points="${pts.map(p => p[0] + "," + p[1]).join(" ")}"/>`;
+    pts.forEach(p => svg += `<circle cx="${p[0]}" cy="${p[1]}" r="4" fill="${colors[k % 2]}"><title>${dest}: €${p[2]}</title></circle>`);
+  });
+  $("chart").innerHTML = svg + "</svg>";
+  $("legend").innerHTML = dests.map((d, k) => `<span><i style="background:${colors[k % 2]}"></i>${d}</span>`).join("");
+}
+</script>
+</body>
+</html>
